@@ -12,6 +12,7 @@ library(network)
 library(intergraph)
 library(GGally)
 library(randomcoloR)
+library(shinydashboard)
 
 
 thematic_shiny()
@@ -37,6 +38,19 @@ ui <- fluidPage(theme = shinytheme("superhero"),
         mainPanel(width = 9,
             tabsetPanel(id = "tabs",
                         
+                tabPanel("Quick Stats",
+                         valueBoxOutput("holders_value"),
+                         valueBoxOutput("largest_deposit_value"),
+                         valueBoxOutput("mean_deposit_value"),
+                         hr(),
+                         valueBoxOutput("median_deposit_value"),
+                         valueBoxOutput("min_deposit_value"),
+                         valueBoxOutput("first_prize"),
+                         hr(),
+                         valueBoxOutput("pools_value"),
+                         valueBoxOutput("popular_pools_value"),
+                         valueBoxOutput("least_popular_pools_value")
+                ),
                 tabPanel("Data",
                          h4("Pools Data"),
                          DT::dataTableOutput("pools_table"),
@@ -110,6 +124,42 @@ server <- function(input, output, session) {
         return(flattened() %>% filter(Pool_Name == unique(Pool_Name)[as.numeric(input$reward_pool)]) %>%
                    select(id, `USD Balance` = Bal) %>%
                    datatable(style = "bootstrap", options = list(scrollX = TRUE)))
+    })
+    
+    output$holders_value <- renderValueBox({
+        valueBox(length(unique(flattened()$id)), subtitle = "Number of Unique Holders")
+    })
+    
+    output$largest_deposit_value <- renderValueBox({
+        valueBox(scales::dollar(max(flattened()$Bal)), subtitle = "Single Largest Balance (USD)")
+    })
+    
+    output$mean_deposit_value <- renderValueBox({
+        valueBox(scales::dollar(mean(flattened()$Bal)), subtitle = "Mean Balance (USD)")
+    })
+    
+    output$median_deposit_value <- renderValueBox({
+        valueBox(scales::dollar(median(flattened()$Bal)), subtitle = "Median Balance (USD)")
+    })
+    
+    output$min_deposit_value <- renderValueBox({
+        valueBox(scales::dollar(min(flattened()$Bal)), subtitle = "Minimum Balance (USD)")
+    })
+    
+    output$first_prize <- renderValueBox({
+        valueBox(min(rewards() %>% bind_rows %>% pull(Awarded_Time)), subtitle = "Time of First Reward")
+    })
+    
+    output$pools_value <- renderValueBox({
+        valueBox(nrow(pools()), subtitle = "Number of Pools")
+    })
+    
+    output$popular_pools_value <- renderValueBox({
+        valueBox(flattened() %>% group_by(Pool_Name) %>% summarise(Count = n()) %>% arrange(desc(Count)) %>% slice(1) %>% pull(Pool_Name), subtitle = "Most Popular Pool by Holders")
+    })
+    
+    output$least_popular_pools_value <- renderValueBox({
+        valueBox(flattened() %>% group_by(Pool_Name) %>% summarise(Count = n()) %>% arrange(Count) %>% slice(1) %>% pull(Pool_Name), subtitle = "Least Popular Pool by Holders")
     })
     
     observeEvent(input$scrape, {
@@ -327,7 +377,8 @@ server <- function(input, output, session) {
             as_tibble() %>%
             mutate(across(c(balance, Value, USD, Dec), as.numeric)) %>%
             mutate(Price = USD / Value) %>%
-            mutate(Bal = balance / (10^Dec) * Price)
+            mutate(Bal = balance / (10^Dec) * Price) %>%
+            filter(Pool_Name != "UNI-V2 Pool")
         
         return(holders_flat)
     })
