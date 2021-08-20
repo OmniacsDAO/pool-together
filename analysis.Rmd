@@ -1,7 +1,7 @@
 ---
 title: "Pool Together Analysis"
 author: "Omni Analytics Group"
-date: "8/19/2021"
+date: "8/20/2021"
 output: html_document
 ---
 
@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
 
 library(tidyverse)
 library(knitr)
+library(kableExtra)
 ```
 
 ## Introduction
@@ -252,19 +253,22 @@ for (i in 1:length(rewards_data)) {
 We can take a look at the first few rows of the pool data:
 
 ```{r}
-pools_data %>% head %>% kable
+pools_data %>% head %>% kable() %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
 The holders of the first pool:
 
 ```{r}
-holders_data[[1]] %>% head %>% kable
+holders_data[[1]] %>% head %>% kable() %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
 The past rewards for the first pool:
 
 ```{r}
-rewards_data[[1]] %>% head %>% kable
+rewards_data[[1]] %>% head %>% kable() %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
 With the data successfully scraped and parsed, we can begin our analysis.
@@ -292,16 +296,7 @@ cbind(x,Pool_Name=y,Value=z,USD=w,Dec=xx),h_holders,h_names,h_val,h_valusd,h_dec
     mutate(Bal = balance / (10^Dec) * Price)
 ```
 
-```{r}
-ggplot(holders_flat, aes(x = Bal)) +
-    geom_histogram(aes(fill = Pool_Name), bins=100) +
-    scale_x_log10(labels = scales::dollar) +
-    facet_wrap(~Pool_Name, scales = "free") +
-    theme(
-        axis.text.x = element_text(angle = 20, hjust = 1),
-        legend.position = "off"
-    )
-```
+With the pre-processed data, the first thing we can look at is a distribution of the balances of holders. Here we use free scales, which allows us to better see each panel individually despite the large difference between the different pools. We can clearly see that most of the balances fall in the \$100 - \$10,000 across the various pools, but there a few holders have very large balances.
 
 ```{r}
 my_dollars <- function(x) {
@@ -313,10 +308,12 @@ ggplot(holders_flat, aes(x = Bal)) +
     scale_x_log10(labels = my_dollars, breaks = c(1e-16, 1e-14, 1e-12, 1e-10, 1e-8, 1e-6, 1e-4, 1e-2, 1, 100, 10000, 1000000, 100000000)) +
     facet_wrap(~Pool_Name, scales = "free") +
     theme(
-        axis.text.x = element_text(angle = 20, hjust = 1),
+        axis.text.x = element_text(angle = 40, hjust = 1),
         legend.position = "off"
     )
 ```
+
+If we fix the x scales, we can now compare across the pools a little better, when stacking the graph like so. We can see that COMP, UNI, and others tend to have larger balances than the USDC or GUSD pools for example.
 
 ```{r, fig.height=12}
 ggplot(holders_flat, aes(x = Bal)) +
@@ -331,6 +328,8 @@ ggplot(holders_flat, aes(x = Bal)) +
 
 ### Average time between rewards
 
+We can compute the mean and median time between rewards by arranging the award time, and then computing the difference between subsequent rows:
+
 ```{r}
 rewards_data1 <- rewards_data %>%
     bind_rows() %>%
@@ -341,15 +340,31 @@ rewards_data1 <- rewards_data %>%
 mean(rewards_data1$TimeBetween, na.rm = TRUE)
 median(rewards_data1$TimeBetween, na.rm = TRUE)
 
-ggplot(rewards_data1, aes(x = TimeBetween)) +
-    geom_histogram()
+```
 
+One method to visualize this data is to plot a histogram of the distribution. This allows us to clearly see that the typical time between rewards is around 1500 minutes, or just about a day.
+
+```{r}
+ggplot(rewards_data1, aes(x = TimeBetween)) +
+    geom_histogram() +
+    scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+    labs(
+        title = "Time between Subsequent Awards",
+        x = "Time (minutes)",
+    )
+```
+
+But, this obscures how the time has decreased since the start. Here we order the rewards from first to last, and plot the time between to see both the oscillating pattern as of late, and how this has settled into the ~1 day value that it is today.
+
+```{r}
 ggplot(rewards_data1 %>% mutate(ID = 1:nrow(.)), aes(x = ID, y = TimeBetween)) +
     geom_point() +
     geom_line()
 ```
 
 ### How many in more than one pool?
+
+We can perform some data manipulation in order to compute how many holders are in more than one pool. Doing so shows that about 2000 holders are in more than one pool:
 
 ```{r}
 have_holders <- which(sapply(holders_data,nrow)>0)
@@ -371,6 +386,8 @@ more_than_one %>% count()
 
 ### How many in exactly one pool?
 
+By checking how many are in exactly one pool, we see that this represents the majority of holders, a bit over 7000 of them.
+
 ```{r}
 flat %>%
     group_by(id) %>%
@@ -381,26 +398,40 @@ flat %>%
 
 ### Most pools
 
+Certain holders are in a large number of pools. At the time of this writing, the addresses below are those in the most pools. One particular holder is in 9 of the pools, and many others are in 8 of them.
+
 ```{r}
 flat %>%
     group_by(id) %>%
     summarise(Pools = length(unique(Pool_Name))) %>%
-    arrange(desc(Pools))
+    arrange(desc(Pools)) %>%
+    head(n = 10) %>%
+    kable() %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
-### Computing Reward Diversity
+### Computing Pool Diversity
 
-```{r}
+We can compute a metric of pool diversity by, for every holder in more than one pool, seeing the incidence that they occur with one another. From there, we can measure how similar the pools themselves are. The POOL Pool and the DAI pool have a fairly strong similarity, whereas (for example) the DAi pool and the BADGER Pool have very little similarity.
+
+```{r, results='asis'}
 incidence <- flat %>% select(Address = id, Pool_Name) %>%
     filter(Address %in% more_than_one$id) %>%
     mutate(Count = 1) %>%
     spread(key = Pool_Name, value = Count)
 incidence[is.na(incidence)] <- 0
 
-test <- 1 - dist(incidence %>% select(-Address) %>% t, method = "binary", upper = TRUE, diag = TRUE) %>% as.matrix
+inci <- 1 - dist(incidence %>% select(-Address) %>% t, method = "binary", upper = TRUE, diag = TRUE) %>% as.matrix
 
-test[1:5, 1:5]
+inci %>%
+    as_tibble() %>%
+    mutate(Pool = rownames(inci)) %>%
+    select(Pool, everything()) %>%
+    kable() %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
 ``` 
+
+Finally, we can see the occurrences of particular tokens within each reward pool:
 
 ```{r}
 res <- sapply(1:nrow(rewards_data1), function(i) {
@@ -415,6 +446,8 @@ res <- sapply(1:nrow(rewards_data1), function(i) {
 final <- res %>% group_by(Pool, Ticker) %>% summarise(Count = n()) %>% spread(key = Ticker, value = Count)
 final[is.na(final)] <- 0
 
-final %>% head %>% kable
+final %>% head %>%
+    kable() %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 

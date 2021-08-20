@@ -359,6 +359,7 @@ server <- function(input, output, session) {
     
     output$diversity <- DT::renderDataTable({
         holders_data <- holders()
+        pools_data <- pools()
         
         have_holders <- which(sapply(holders_data,nrow)>0)
         h_names <- pools_data$Name[have_holders]
