@@ -6,6 +6,15 @@ library(httr)
 library(jsonlite)
 library(lubridate)
 library(ghql)
+library(thematic)
+library(igraph)
+library(network)
+library(intergraph)
+library(GGally)
+library(randomcoloR)
+
+
+thematic_shiny()
 
 addResourcePath("images", "images")
 
@@ -13,13 +22,13 @@ my_dollars <- function(x) {
     ifelse(x < .01, paste0("$", x), scales::dollar(x))
 }
 
-ui <- fluidPage(theme = "theme.css",
+ui <- fluidPage(theme = shinytheme("superhero"),
 
-    div(style = "text-color: #522EAD", titlePanel("Pool Together Interactive Application")),
+    titlePanel("PoolTogether Interactive Data Analysis Application"),
 
     sidebarLayout(
         sidebarPanel(width = 3,
-                     div(img(src = "images/image.png"), style = "text-align: center;"),
+                     div(img(src = "images/logo.png"), style = "text-align: center;"),
                      hr(),
                      selectInput("reward_pool", "Select a Pool", choices = NULL),
                      actionButton("scrape", "Scrape New Data", style="color: #fff; background-color: #522EAD; border-color: #522EAD")
@@ -39,16 +48,19 @@ ui <- fluidPage(theme = "theme.css",
                          DT::dataTableOutput("holders_table")
                 ),
                 tabPanel("Holders",
-                         h4("Distribution of Holders across Pools"),
+                         h4("Distribution of Holder Balances across Pools (Fixed Scale)"),
                          plotOutput("holders_dist"),
+                         h4("Distribution of Holder Balances across Pools (Free Scale)"),
                          plotOutput("holders_dist_free")
                 ),
                 tabPanel("Rewards",
-                         h4("Average Time between Rewards"),
+                         h4("Average Time between Reward Announcements in Minutes"),
+                         h6("A line graph highlighting the increased frequency of lottery drawings"),
                          plotOutput("rewards_time"),
                 ),
                 tabPanel("Diversity",
                          h4("Reward Pool Diversity"),
+                         plotOutput("graph"),
                          DT::dataTableOutput("diversity")
                 )
             )
@@ -81,23 +93,24 @@ server <- function(input, output, session) {
         updateSelectInput(session, "reward_pool", choices = choices)
     })
     
-    output$pools_table <- DT::renderDataTable({
+    output$pools_table <- renderDT({
         my_vals = 1:nrow(pools())
         my_vals2 <- pools()$Name
         my_colors = ifelse(as.character(my_vals) == input$reward_pool, '#cabad1', NA)
         
-        return(datatable(pools(), options = list(scrollX = TRUE)) %>%
-                   formatStyle('Name', target = 'row', 
-                               backgroundColor = styleEqual(my_vals2, my_colors)))
+        return(datatable(iris, style = "bootstrap"))
     })
     
-    output$rewards_table <- DT::renderDataTable({
-        return(rewards()[[as.numeric(input$reward_pool)]])
-    }, options = list(scrollX = TRUE))
+    output$rewards_table <- renderDT({
+        return(datatable(rewards()[[as.numeric(input$reward_pool)]],
+                         style = "bootstrap", options = list(scrollX = TRUE)))
+    })
     
-    output$holders_table <- DT::renderDataTable({
-        return(holders()[[as.numeric(input$reward_pool)]])
-    }, options = list(scrollX = TRUE))
+    output$holders_table <- renderDT({
+        return(flattened() %>% filter(Pool_Name == unique(Pool_Name)[as.numeric(input$reward_pool)]) %>%
+                   select(id, `USD Balance` = Bal) %>%
+                   datatable(style = "bootstrap", options = list(scrollX = TRUE)))
+    })
     
     observeEvent(input$scrape, {
         withProgress(message = "Scraping newest data, please wait a few seconds...", expr = {
@@ -310,9 +323,7 @@ server <- function(input, output, session) {
         h_dec <- pools_data$Base_Tok_Decimals[have_holders]
         h_holders <- holders_data[have_holders]
         
-        holders_flat <- do.call(rbind,mapply(function(x,y,z,w,xx)
-            
-            cbind(x,Pool_Name=y,Value=z,USD=w,Dec=xx),h_holders,h_names,h_val,h_valusd,h_dec,SIMPLIFY=FALSE)) %>%
+        holders_flat <- do.call(rbind,mapply(function(x,y,z,w,xx) cbind(x,Pool_Name=y,Value=z,USD=w,Dec=xx),h_holders,h_names,h_val,h_valusd,h_dec,SIMPLIFY=FALSE)) %>%
             as_tibble() %>%
             mutate(across(c(balance, Value, USD, Dec), as.numeric)) %>%
             mutate(Price = USD / Value) %>%
@@ -354,10 +365,14 @@ server <- function(input, output, session) {
         
         ggplot(rewards_data1 %>% mutate(ID = 1:nrow(.)), aes(x = ID, y = TimeBetween)) +
             geom_point() +
-            geom_line()
+            geom_line() +
+            scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+            labs(
+                y = "Time Between Rewards (Minutes)"
+            )
     })
     
-    output$diversity <- DT::renderDataTable({
+    incidence <- reactive({
         holders_data <- holders()
         pools_data <- pools()
         
@@ -381,10 +396,55 @@ server <- function(input, output, session) {
             spread(key = Pool_Name, value = Count)
         incidence[is.na(incidence)] <- 0
         
-        test <- 1 - dist(incidence %>% select(-Address) %>% t, method = "binary", upper = TRUE, diag = TRUE) %>% as.matrix
-        
-        test
+        return(incidence)
     })
+    
+    output$diversity <- DT::renderDT({
+        test <- 1 - dist(incidence() %>% select(-Address) %>% t, method = "binary", upper = TRUE, diag = TRUE) %>% as.matrix
+        
+        test %>%
+            datatable(style = "bootstrap", options = list(scrollX = TRUE))
+    })
+    
+    output$graph <- renderPlot({
+        sim_mat <- incidence()
+        
+        rownames(sim_mat) <- sim_mat$Pool
+        sim_mat <- sim_mat[,-1]
+        links <- data.frame(source=character(),target=character(),importance=numeric())
+        for(idx in 1:nrow(sim_mat))
+        {
+            temp_df <- data.frame(
+                source = rownames(sim_mat)[idx],
+                target = colnames(sim_mat),
+                importance = round(as.numeric(sim_mat[idx,])*10,2)
+            )
+            links <- rbind(links,temp_df)
+        }
+        links <- links[!(links$importance %in% c(0,10)),]
+        nodes <- data.frame(
+            name = unique(c(links$source,links$target)),
+            size = c(170,311,5124,3,1368,13,1037,72,1796),
+            color = distinctColorPalette(length(unique(c(links$source,links$target))))
+        )
+        # nodes$
+        sim_net <- graph_from_data_frame(d=links, vertices=nodes, directed=T)
+    
+        ## Plot
+        sim_plot <- ggnet2(
+            sim_net,
+            node.size = "size",
+            node.color = "color",
+            edge.size="importance",
+            edge.color = "grey",
+            size.legend=NULL
+        ) +  
+            geom_text(
+                aes(label = label, y = y + 0),
+                size=3
+            ) 
+    })
+    
 }
 
 # Run the application 

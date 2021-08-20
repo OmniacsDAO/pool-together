@@ -287,9 +287,7 @@ h_valusd <- pools_data$Ticket_Val_USD[have_holders]
 h_dec <- pools_data$Base_Tok_Decimals[have_holders]
 h_holders <- holders_data[have_holders]
 
-holders_flat <- do.call(rbind,mapply(function(x,y,z,w,xx)
-    
-cbind(x,Pool_Name=y,Value=z,USD=w,Dec=xx),h_holders,h_names,h_val,h_valusd,h_dec,SIMPLIFY=FALSE)) %>%
+holders_flat <- do.call(rbind,mapply(function(x,y,z,w,xx) cbind(x,Pool_Name=y,Value=z,USD=w,Dec=xx),h_holders,h_names,h_val,h_valusd,h_dec,SIMPLIFY=FALSE)) %>%
     as_tibble() %>%
     mutate(across(c(balance, Value, USD, Dec), as.numeric)) %>%
     mutate(Price = USD / Value) %>%
