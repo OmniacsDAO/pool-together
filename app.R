@@ -98,7 +98,7 @@ server <- function(input, output, session) {
         my_vals2 <- pools()$Name
         my_colors = ifelse(as.character(my_vals) == input$reward_pool, '#cabad1', NA)
         
-        return(datatable(iris, style = "bootstrap"))
+        return(datatable(pools(), style = "bootstrap"))
     })
     
     output$rewards_table <- renderDT({
