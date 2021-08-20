@@ -179,7 +179,14 @@ pre code {
 </div>
 <div id="data" class="section level2">
 <h2>Data</h2>
-<p>To begin, we need to scrape the data. The code is provided below, if desired.</p>
+<p>To begin, we need to scrape the data. The code is provided below, if desired. The procedure for data scraping is:</p>
+<ol style="list-style-type: decimal">
+<li>Retrieve the network/chain pool data from the pool together API json files.</li>
+<li>Parse the JSON / nested list structure into an R dataframe.</li>
+<li>Retrieve the rewards / prize history by making a GraphQL call to TheGraph’s API.</li>
+<li>Retrieve information on the holders by making a GraphQL call to TheGraph’s API.</li>
+<li>Save the three objects as R Data Files.</li>
+</ol>
 <details>
 <summary>
 View Code
@@ -382,16 +389,19 @@ for(idx in 1:nrow(pools_data))
 }
 saveRDS(holders_data,&quot;data/holders_data.RDS&quot;)</code></pre>
 </details>
-<p>Next, with the data successfully scraped, we read in the R data objects into our local environment and take a look at the raw data.</p>
-<pre class="r"><code>pools_data &lt;- readRDS(&quot;data/pools_data.RDS&quot;)
+<p>Next, with the data successfully scraped, we read in the R data objects into our local environment and take a look at the raw data. To the rewards data, we add an indicator of the pool name for each.</p>
+<pre class="r"><code># Read the objects into the environment
+pools_data &lt;- readRDS(&quot;data/pools_data.RDS&quot;)
 holders_data &lt;- readRDS(&quot;data/holders_data.RDS&quot;)
 rewards_data &lt;- readRDS(&quot;data/rewards_data.RDS&quot;)
 
+# Store the pool name int he rewards data
 for (i in 1:length(rewards_data)) {
     if (nrow(rewards_data[[i]]) &gt; 0) {
         rewards_data[[i]]$Pool &lt;- pools_data$Name[i]
     }
 }</code></pre>
+<p>We can take a look at the first few rows of the pool data:</p>
 <pre class="r"><code>pools_data %&gt;% head %&gt;% kable</code></pre>
 <table>
 <colgroup>
@@ -767,6 +777,7 @@ for (i in 1:length(rewards_data)) {
 </tr>
 </tbody>
 </table>
+<p>The holders of the first pool:</p>
 <pre class="r"><code>holders_data[[1]] %&gt;% head %&gt;% kable</code></pre>
 <table>
 <thead>
@@ -802,6 +813,7 @@ for (i in 1:length(rewards_data)) {
 </tr>
 </tbody>
 </table>
+<p>The past rewards for the first pool:</p>
 <pre class="r"><code>rewards_data[[1]] %&gt;% head %&gt;% kable</code></pre>
 <table style="width:100%;">
 <colgroup>
@@ -881,6 +893,7 @@ for (i in 1:length(rewards_data)) {
 </tr>
 </tbody>
 </table>
+<p>With the data successfully scraped and parsed, we can begin our analysis.</p>
 </div>
 <div id="analysis" class="section level2">
 <h2>Analysis</h2>

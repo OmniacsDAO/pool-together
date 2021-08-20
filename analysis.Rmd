@@ -22,7 +22,13 @@ True to the spirit of decentralization, the PoolTogether protocol is managed by 
 
 ## Data
 
-To begin, we need to scrape the data. The code is provided below, if desired.
+To begin, we need to scrape the data. The code is provided below, if desired. The procedure for data scraping is:
+
+1. Retrieve the network/chain pool data from the pool together API json files.
+2. Parse the JSON / nested list structure into an R dataframe.
+3. Retrieve the rewards / prize history by making a GraphQL call to TheGraph's API.
+4. Retrieve information on the holders by making a GraphQL call to TheGraph's API.
+5. Save the three objects as R Data Files.
 
 <details><summary>View Code</summary>
 
@@ -227,13 +233,15 @@ saveRDS(holders_data,"data/holders_data.RDS")
 ```
 </details>
 
-Next, with the data successfully scraped, we read in the R data objects into our local environment and take a look at the raw data.
+Next, with the data successfully scraped, we read in the R data objects into our local environment and take a look at the raw data. To the rewards data, we add an indicator of the pool name for each.
 
 ```{r}
+# Read the objects into the environment
 pools_data <- readRDS("data/pools_data.RDS")
 holders_data <- readRDS("data/holders_data.RDS")
 rewards_data <- readRDS("data/rewards_data.RDS")
 
+# Store the pool name int he rewards data
 for (i in 1:length(rewards_data)) {
     if (nrow(rewards_data[[i]]) > 0) {
         rewards_data[[i]]$Pool <- pools_data$Name[i]
@@ -241,17 +249,25 @@ for (i in 1:length(rewards_data)) {
 }
 ```
 
+We can take a look at the first few rows of the pool data:
+
 ```{r}
 pools_data %>% head %>% kable
 ```
+
+The holders of the first pool:
 
 ```{r}
 holders_data[[1]] %>% head %>% kable
 ```
 
+The past rewards for the first pool:
+
 ```{r}
 rewards_data[[1]] %>% head %>% kable
 ```
+
+With the data successfully scraped and parsed, we can begin our analysis.
 
 ## Analysis
 
