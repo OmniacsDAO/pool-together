@@ -7,14 +7,22 @@ library(jsonlite)
 library(lubridate)
 library(ghql)
 
-ui <- fluidPage(theme = shinytheme("cerulean"),
+addResourcePath("images", "images")
 
-    titlePanel("Pool Together Interactive Application"),
+my_dollars <- function(x) {
+    ifelse(x < .01, paste0("$", x), scales::dollar(x))
+}
+
+ui <- fluidPage(theme = "theme.css",
+
+    div(style = "text-color: #522EAD", titlePanel("Pool Together Interactive Application")),
 
     sidebarLayout(
         sidebarPanel(width = 3,
+                     div(img(src = "images/image.png"), style = "text-align: center;"),
+                     hr(),
                      selectInput("reward_pool", "Select a Pool", choices = NULL),
-                     actionButton("scrape", "Scrape New Data")
+                     actionButton("scrape", "Scrape New Data", style="color: #fff; background-color: #522EAD; border-color: #522EAD")
         ),
 
         mainPanel(width = 9,
@@ -29,7 +37,20 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                          
                          h4("Holders Data"),
                          DT::dataTableOutput("holders_table")
-                )            
+                ),
+                tabPanel("Holders",
+                         h4("Distribution of Holders across Pools"),
+                         plotOutput("holders_dist"),
+                         plotOutput("holders_dist_free")
+                ),
+                tabPanel("Rewards",
+                         h4("Average Time between Rewards"),
+                         plotOutput("rewards_time"),
+                ),
+                tabPanel("Diversity",
+                         h4("Reward Pool Diversity"),
+                         DT::dataTableOutput("diversity")
+                )
             )
         )
     )
@@ -63,7 +84,7 @@ server <- function(input, output, session) {
     output$pools_table <- DT::renderDataTable({
         my_vals = 1:nrow(pools())
         my_vals2 <- pools()$Name
-        my_colors = ifelse(as.character(my_vals) == input$reward_pool, 'yellow', NA)
+        my_colors = ifelse(as.character(my_vals) == input$reward_pool, '#cabad1', NA)
         
         return(datatable(pools(), options = list(scrollX = TRUE)) %>%
                    formatStyle('Name', target = 'row', 
@@ -274,6 +295,94 @@ server <- function(input, output, session) {
             ####################################################
             ####################################################
         })
+    })
+    
+    flattened <- reactive({
+        holders_data <- holders()
+        pools_data <- pools()
+        
+        ## Flatten holders data
+        have_holders <- which(sapply(holders_data,nrow)>0)
+        
+        h_names <- pools_data$Name[have_holders]
+        h_val <- pools_data$Ticket_Val_Base_Tok[have_holders]
+        h_valusd <- pools_data$Ticket_Val_USD[have_holders]
+        h_dec <- pools_data$Base_Tok_Decimals[have_holders]
+        h_holders <- holders_data[have_holders]
+        
+        holders_flat <- do.call(rbind,mapply(function(x,y,z,w,xx)
+            
+            cbind(x,Pool_Name=y,Value=z,USD=w,Dec=xx),h_holders,h_names,h_val,h_valusd,h_dec,SIMPLIFY=FALSE)) %>%
+            as_tibble() %>%
+            mutate(across(c(balance, Value, USD, Dec), as.numeric)) %>%
+            mutate(Price = USD / Value) %>%
+            mutate(Bal = balance / (10^Dec) * Price)
+        
+        return(holders_flat)
+    })
+    
+    output$holders_dist <- renderPlot({
+        
+        ggplot(flattened(), aes(x = Bal)) +
+            geom_histogram(aes(fill = Pool_Name), bins=100) +
+            scale_x_log10(labels = my_dollars, breaks = c(1e-16, 1e-14, 1e-12, 1e-10, 1e-8, 1e-6, 1e-4, 1e-2, 1, 100, 10000, 1000000, 100000000)) +
+            facet_wrap(~Pool_Name, scales = "free_y") +
+            theme(
+                axis.text.x = element_text(angle = 20, hjust = 1),
+                legend.position = "off"
+            )
+    })
+    
+    output$holders_dist_free <- renderPlot({
+        
+        ggplot(flattened(), aes(x = Bal)) +
+            geom_histogram(aes(fill = Pool_Name), bins=100) +
+            scale_x_log10(labels = my_dollars, breaks = c(1e-16, 1e-14, 1e-12, 1e-10, 1e-8, 1e-6, 1e-4, 1e-2, 1, 100, 10000, 1000000, 100000000)) +
+            facet_wrap(~Pool_Name, scales = "free") +
+            theme(
+                axis.text.x = element_text(angle = 20, hjust = 1),
+                legend.position = "off"
+            )
+    })
+    
+    output$rewards_time <- renderPlot({
+        rewards_data1 <- rewards() %>%
+            bind_rows() %>%
+            as_tibble() %>%
+            arrange(Awarded_Time) %>%
+            mutate(TimeBetween = c(NA, diff(Awarded_Time)))
+        
+        ggplot(rewards_data1 %>% mutate(ID = 1:nrow(.)), aes(x = ID, y = TimeBetween)) +
+            geom_point() +
+            geom_line()
+    })
+    
+    output$diversity <- DT::renderDataTable({
+        holders_data <- holders()
+        
+        have_holders <- which(sapply(holders_data,nrow)>0)
+        h_names <- pools_data$Name[have_holders]
+        n_tokens <- pools_data$Base_Tok_Name[have_holders]
+        h_holders <- holders_data[have_holders]
+        
+        
+        flat <- do.call(rbind,mapply(function(x,y,z) cbind(x,Pool_Name=y, Token_Name=z),h_holders,h_names,n_tokens,SIMPLIFY=FALSE)) %>%
+            as_tibble()
+        
+        more_than_one <- flat %>%
+            group_by(id) %>%
+            summarise(Pools = length(unique(Pool_Name))) %>%
+            filter(Pools > 1)
+        
+        incidence <- flat %>% select(Address = id, Pool_Name) %>%
+            filter(Address %in% more_than_one$id) %>%
+            mutate(Count = 1) %>%
+            spread(key = Pool_Name, value = Count)
+        incidence[is.na(incidence)] <- 0
+        
+        test <- 1 - dist(incidence %>% select(-Address) %>% t, method = "binary", upper = TRUE, diag = TRUE) %>% as.matrix
+        
+        test
     })
 }
 
