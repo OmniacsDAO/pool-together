@@ -407,10 +407,9 @@ server <- function(input, output, session) {
     })
     
     output$graph <- renderPlot({
-        sim_mat <- incidence()
+        dist_mat <- incidence()
+        sim_mat <- 1 - dist(dist_mat %>% select(-Address) %>% t, method = "binary", upper = TRUE, diag = TRUE) %>% as.matrix
         
-        rownames(sim_mat) <- sim_mat$Pool
-        sim_mat <- sim_mat[,-1]
         links <- data.frame(source=character(),target=character(),importance=numeric())
         for(idx in 1:nrow(sim_mat))
         {
@@ -431,7 +430,7 @@ server <- function(input, output, session) {
         sim_net <- graph_from_data_frame(d=links, vertices=nodes, directed=T)
     
         ## Plot
-        sim_plot <- ggnet2(
+        ggnet2(
             sim_net,
             node.size = "size",
             node.color = "color",
